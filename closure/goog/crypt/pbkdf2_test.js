@@ -59,3 +59,42 @@ function testPBKDF2() {
       goog.crypt.hexToByteArray('56fa6aa75548099dcc37d7f03425e0c3'),
       goog.crypt.pbkdf2.deriveKeySha1(testPassword, testSalt, 4096, 128));
 }
+
+function testPBKDF2SHA256() {
+  // PBKDF2 SHA256 test vectors from:
+  // http://stackoverflow.com/questions/5130513/pbkdf2-hmac-sha2-test-vectors
+
+  var testPassword = goog.crypt.stringToByteArray('password');
+  var testSalt = goog.crypt.stringToByteArray('salt');
+
+  assertElementsEquals(
+      goog.crypt.hexToByteArray(
+          '120fb6cffcf8b32c43e7225256c4f837a86548c92ccc35480805987cb70be17b'),
+      goog.crypt.pbkdf2.deriveKeySha256(testPassword, testSalt, 1, 256));
+
+  assertElementsEquals(
+      goog.crypt.hexToByteArray(
+          'ae4d0c95af6b46d32d0adff928f06dd02a303f8ef3c251dfd6e2d85a95474c43'),
+      goog.crypt.pbkdf2.deriveKeySha256(testPassword, testSalt, 2, 256));
+
+  assertElementsEquals(
+      goog.crypt.hexToByteArray(
+          'c5e478d59288c841aa530db6845c4c8d962893a001ce4e11a4963873aa98134a'),
+      goog.crypt.pbkdf2.deriveKeySha256(testPassword, testSalt, 4096, 256));
+
+  testPassword = goog.crypt.stringToByteArray('passwordPASSWORDpassword');
+  testSalt =
+      goog.crypt.stringToByteArray('saltSALTsaltSALTsaltSALTsaltSALTsalt');
+
+  assertElementsEquals(
+      goog.crypt.hexToByteArray(
+          '348c89dbcbd32b2f32d814b8116e84cf2b17347ebc1800181c4e2a1fb8dd53e1c635518c7dac47e9'),
+      goog.crypt.pbkdf2.deriveKeySha256(testPassword, testSalt, 4096, 320));
+
+  testPassword = goog.crypt.stringToByteArray('pass\0word');
+  testSalt = goog.crypt.stringToByteArray('sa\0lt');
+
+  assertElementsEquals(
+      goog.crypt.hexToByteArray('89b69d0516f829893c696226650a8687'),
+      goog.crypt.pbkdf2.deriveKeySha256(testPassword, testSalt, 4096, 128));
+}

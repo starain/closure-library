@@ -32,6 +32,7 @@ goog.require('goog.asserts');
 goog.require('goog.crypt');
 goog.require('goog.crypt.Hmac');
 goog.require('goog.crypt.Sha1');
+goog.require('goog.crypt.Sha256');
 
 
 /**
@@ -75,6 +76,47 @@ goog.crypt.pbkdf2.deriveKeySha1 = function(
       computeBlock, HASH_LENGTH, keyLength);
 };
 
+
+/**
+ * Derives key from password using PBKDF2-SHA256
+ * @param {!Array.<number>} password Byte array representation of the password
+ *     from which the key is derived.
+ * @param {!Array.<number>} initialSalt Byte array representation of the salt.
+ * @param {number} iterations Number of interations when computing the key.
+ * @param {number} keyLength Length of the output key in bits.
+ *     Must be multiple of 8.
+ * @return {!Array.<number>} Byte array representation of the output key.
+ */
+goog.crypt.pbkdf2.deriveKeySha256 = function(
+    password, initialSalt, iterations, keyLength) {
+  // Length of the HMAC-SHA256 output in bits.
+  var HASH_LENGTH = 256;
+
+  /**
+   * Compute each block of the key using HMAC-SHA1.
+   * @param {!Array.<number>} index Byte array representation of the index of
+   *     the block to be computed.
+   * @return {!Array.<number>} Byte array representation of the output block.
+   */
+  var computeBlock = function(index) {
+    // Initialize the result to be array of 0 such that its xor with the first
+    // block would be the first block.
+    var result = goog.array.repeat(0, HASH_LENGTH / 8);
+    // Initialize the salt of the first iteration to initialSalt || i.
+    var salt = initialSalt.concat(index);
+    var hmac = new goog.crypt.Hmac(new goog.crypt.Sha256(), password, 64);
+    // Compute and XOR each iteration.
+    for (var i = 0; i < iterations; i++) {
+      // The salt of the next iteration is the result of the current iteration.
+      salt = hmac.getHmac(salt);
+      result = goog.crypt.xorByteArray(result, salt);
+    }
+    return result;
+  };
+
+  return goog.crypt.pbkdf2.deriveKeyFromPassword_(
+      computeBlock, HASH_LENGTH, keyLength);
+};
 
 /**
  * Compute each block of the key using PBKDF2.
