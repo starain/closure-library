@@ -37,6 +37,9 @@ function setUp() {
   var initFn = goog.testing.TestCase.initializeTestRunner;
   goog.testing.TestCase.initializeTestRunner = function() {};
   testCase = new goog.labs.testing.EnvironmentTestCase_();
+  goog.labs.testing.EnvironmentTestCase_.getInstance = function() {
+    return testCase;
+  };
   goog.testing.TestCase.initializeTestRunner = initFn;
 
   mockControl = new goog.testing.MockControl();
@@ -106,7 +109,68 @@ function testAutoDiscoverTests() {
 
   // Note that this number changes when more tests are added this file as
   // the environment reflects on the window global scope for JsUnit.
-  assertEquals(2, testCase.tests_.length);
+  assertEquals(5, testCase.tests_.length);
 
   testing = false;
+}
+
+function testMockClock() {
+  testing = true;
+
+  var env = new goog.labs.testing.Environment().withMockClock();
+
+  testCase.addNewTest('testThatThrowsEventually', function() {
+    setTimeout(function() {
+      throw new Error('LateErrorMessage');
+    }, 200);
+  });
+
+  testCase.runTests();
+  assertTestFailure(testCase, 'testThatThrowsEventually', 'LateErrorMessage');
+
+  testing = false;
+}
+
+function testMockControl() {
+  testing = true;
+
+  var env = new goog.labs.testing.Environment().withMockControl();
+  var test = env.mockControl.createFunctionMock('test');
+
+  testCase.addNewTest('testWithoutVerify', function() {
+    test();
+    env.mockControl.$replayAll();
+    test();
+  });
+
+  testCase.runTests();
+  assertNull(env.mockClock);
+
+  testing = false;
+}
+
+function testMock() {
+  testing = true;
+
+  var env = new goog.labs.testing.Environment().withMockControl();
+  var mock = env.mock({
+    test: function() {}
+  });
+
+  testCase.addNewTest('testMockCalled', function() {
+    mock.test().$times(2);
+
+    env.mockControl.$replayAll();
+    mock.test();
+    mock.test();
+    env.mockControl.verifyAll();
+  });
+
+  testCase.runTests();
+
+  testing = false;
+}
+
+function assertTestFailure(testCase, name, message) {
+  assertContains(message, testCase.result_.resultsByName[name][0]);
 }

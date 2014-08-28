@@ -15,6 +15,9 @@
 goog.provide('goog.labs.testing.Environment');
 
 goog.require('goog.array');
+goog.require('goog.debug.Console');
+goog.require('goog.testing.MockClock');
+goog.require('goog.testing.MockControl');
 goog.require('goog.testing.TestCase');
 goog.require('goog.testing.jsunit');
 
@@ -34,6 +37,21 @@ goog.labs.testing.Environment = goog.defineClass(null, {
   constructor: function() {
     goog.labs.testing.EnvironmentTestCase_.getInstance().
         registerEnvironment_(this);
+
+    /** @type {goog.testing.MockControl} */
+    this.mockControl = null;
+
+    /** @type {goog.testing.MockClock} */
+    this.mockClock = null;
+
+    /** @private {boolean} */
+    this.shouldMakeMockControl_ = false;
+
+    /** @private {boolean} */
+    this.shouldMakeMockClock_ = false;
+
+    /** @const {!goog.debug.Console} */
+    this.console = goog.labs.testing.Environment.console_;
   },
 
 
@@ -42,16 +60,105 @@ goog.labs.testing.Environment = goog.defineClass(null, {
 
 
   /** Runs immediately after the tearDownPage phase of JsUnit tests. */
-  tearDownPage: goog.nullFunction,
-
+  tearDownPage: function() {
+    // If we created the mockControl, we'll also tear it down.
+    if (this.shouldMakeMockControl_) {
+      this.mockControl.$tearDown();
+    }
+    if (this.shouldMakeMockClock_) {
+      this.mockClock.dispose();
+    }
+  },
 
   /** Runs immediately before the setUp phase of JsUnit tests. */
   setUp: goog.nullFunction,
 
-
   /** Runs immediately after the tearDown phase of JsUnit tests. */
-  tearDown: goog.nullFunction
+  tearDown: function() {
+    // Make sure promises and other stuff that may still be scheduled, get a
+    // chance to run (and throw errors).
+    if (this.mockClock) {
+      for (var i = 0; i < 100; i++) {
+        this.mockClock.tick(1000);
+      }
+      // If we created the mockClock, we'll also dispose it.
+      if (this.shouldMakeMockClock_) {
+        this.mockClock.reset();
+      }
+    }
+    // Make sure the user did not forget to call $replayAll & $verifyAll in
+    // their test. This is a noop if they did.
+    // This is important because:
+    // - Engineers thinks that not all their tests need to replay and verify.
+    //   That lets tests sneak in that call mocks but never replay those calls.
+    // - Then some well meaning maintenance engineer wants to update the test
+    //   with some new mock, adds a replayAll and BOOM the test fails
+    //   because completely unrelated mocks now get replayed.
+    if (this.mockControl) {
+      this.mockControl.$verifyAll();
+      this.mockControl.$replayAll();
+      this.mockControl.$verifyAll();
+      this.mockControl.$resetAll();
+    }
+    // Verifying the mockControl may throw, so if cleanup needs to happen,
+    // add it further up in the function.
+  },
+
+
+  /**
+   * Create a new {@see goog.testing.MockControl} accessible via
+   * {@code env.mockControl} for each test. If your test has more than one
+   * testing environment, don't call this on more than one of them.
+   * @return {goog.labs.testing.Environment} For chaining.
+   */
+  withMockControl: function() {
+    if (!this.shouldMakeMockControl_) {
+      this.shouldMakeMockControl_ = true;
+      this.mockControl = new goog.testing.MockControl();
+    }
+    return this;
+  },
+
+
+  /**
+   * Create a {@see goog.testing.MockClock} for each test. The clock will be
+   * installed (override i.e. setTimeout) by default. It can be accessed
+   * using {@code env.mockClock}. If your test has more than one testing
+   * environment, don't call this on more than one of them.
+   * @return {goog.labs.testing.Environment} For chaining.
+   */
+  withMockClock: function() {
+    if (!this.shouldMakeMockClock_) {
+      this.shouldMakeMockClock_ = true;
+      this.mockClock = new goog.testing.MockClock(true);
+    }
+    return this;
+  },
+
+
+  /**
+   * Creates a basic strict mock of a {@code toMock}. For more advanced mocking,
+   * please use the MockControl directly.
+   * @param {Function} toMock
+   * @return {!goog.testing.StrictMock}
+   */
+  mock: function(toMock) {
+    if (!this.shouldMakeMockControl_) {
+      throw new Error('MockControl not available on this environment. ' +
+                      'Call withMockControl if this environment is expected ' +
+                      'to contain a MockControl.');
+    }
+    return this.mockControl.createStrictMock(toMock);
+  }
 });
+
+
+/** @private @const {!goog.debug.Console} */
+goog.labs.testing.Environment.console_ = new goog.debug.Console();
+
+
+// Activate logging to the browser's console by default.
+goog.labs.testing.Environment.console_.setCapturing(true);
 
 
 
@@ -134,16 +241,34 @@ goog.labs.testing.EnvironmentTestCase_.prototype.setUp = function() {
 
 /** @override */
 goog.labs.testing.EnvironmentTestCase_.prototype.tearDown = function() {
+  var firstException;
   // User defined tearDown method.
   if (goog.global['tearDown']) {
-    goog.global['tearDown']();
+    try {
+      goog.global['tearDown']();
+    } catch (e) {
+      if (!firstException) {
+        firstException = e;
+      }
+    }
   }
 
   // Execute the tearDown methods for the environment in the reverse order
   // in which they were registered to "unfold" the setUp.
   goog.array.forEachRight(this.environments_, function(env) {
-    env.tearDown();
+    // For tearDowns between tests make sure they run as much as possible to
+    // avoid interference between tests.
+    try {
+      env.tearDown();
+    } catch (e) {
+      if (!firstException) {
+        firstException = e;
+      }
+    }
   });
+  if (firstException) {
+    throw firstException;
+  }
 };
 
 

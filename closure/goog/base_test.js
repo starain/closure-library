@@ -278,7 +278,7 @@ function testIsDef() {
   var notDefined;
 
   assertTrue('defined should be defined', goog.isDef(defined));
-  assertTrue('null should be defined', goog.isDef(defined));
+  assertTrue('null should be defined', goog.isDef(nullVar));
   assertFalse('undefined should not be defined', goog.isDef(notDefined));
 }
 
@@ -335,30 +335,28 @@ function testIsArray() {
 }
 
 function testTypeOfAcrossWindow() {
-  if (goog.userAgent.WEBKIT && goog.userAgent.MAC) {
-    // The server farm has issues with new windows on Safari Mac.
+  if (goog.userAgent.IE && goog.userAgent.isVersionOrHigher('10') &&
+      !goog.userAgent.isVersionOrHigher('11')) {
+    // TODO(johnlenz): This test is flaky on IE10 (passing 90+% of the time).
+    // When it flakes the values are undefined which appears to indicate the
+    // script did not run in the opened window and not a failure of the logic
+    // we are trying to test.
     return;
   }
 
   var w = window.open('', 'blank');
   if (w) {
     try {
-      try {
-        var d = w.document;
-        d.open();
-        d.write('<script>function fun(){};' +
-                'var arr = [];' +
-                'var x = 42;' +
-                'var s = "";' +
-                'var b = true;' +
-                'var obj = {length: 0, splice: {}, call: {}};' +
-                '</' + 'script>');
-        d.close();
-      } catch (ex) {
-        // In Firefox Linux on the server farm we don't have access to
-        // w.document.
-        return;
-      }
+      var d = w.document;
+      d.open();
+      d.write('<script>function fun(){};' +
+              'var arr = [];' +
+              'var x = 42;' +
+              'var s = "";' +
+              'var b = true;' +
+              'var obj = {length: 0, splice: {}, call: {}};' +
+              '</' + 'script>');
+      d.close();
 
       assertEquals('function', goog.typeOf(w.fun));
       assertEquals('array', goog.typeOf(w.arr));
@@ -996,6 +994,15 @@ function testGetMsgWithDollarSigns() {
 }
 
 
+function testGetMsgWithPlaceholders() {
+  var msg = goog.getMsg('{$a} has {$b}', {a: '{$b}', b: 1});
+  assertEquals('{$b} has 1', msg);
+
+  msg = goog.getMsg('{$a}{$b}', {b: ''});
+  assertEquals('{$a}', msg);
+}
+
+
 //=== miscellaneous tests ===
 
 function testIdentity() {
@@ -1323,4 +1330,72 @@ function testLateRequireProtection() {
   });
 
   assertContains('after document load', e.message);
+}
+
+function testDefineClass() {
+  var Base = goog.defineClass(null, {
+    constructor: function(foo) {
+      this.foo = foo;
+    },
+    statics: {
+      x: 42
+    },
+    frobnicate: function() {
+      return this.foo + this.foo;
+    }
+  });
+  var Derived = goog.defineClass(Base, {
+    constructor: function() {
+      Derived.base(this, 'constructor', 'bar');
+    },
+    frozzle: function(foo) {
+      this.foo = foo;
+    }
+  });
+
+  assertEquals(42, Base.x);
+  var der = new Derived();
+  assertEquals('barbar', der.frobnicate());
+  der.frozzle('qux');
+  assertEquals('quxqux', der.frobnicate());
+}
+
+function testDefineClass_interface() {
+  var Interface = goog.defineClass(null, {
+    statics: {
+      foo: 'bar'
+    },
+    qux: function() {}
+  });
+  assertEquals('bar', Interface.foo);
+  assertThrows(function() { new Interface(); });
+}
+
+function testDefineClass_seals() {
+  if (!(Object.seal instanceof Function)) return; // IE<9 doesn't have seal
+  var A = goog.defineClass(null, {
+    constructor: function() {}
+  });
+  var a = new A();
+  try {
+    a.foo = 'bar';
+  } catch (expectedInStrictModeOnly) { /* ignored */ }
+  assertEquals(undefined, a.foo);
+}
+
+function testDefineClass_unsealable() {
+  var LegacyBase = function() {};
+  LegacyBase.prototype.foo = null;
+  LegacyBase.prototype.setFoo = function(foo) {
+    this.foo = foo;
+  };
+  goog.tagUnsealableClass(LegacyBase);
+
+  var Derived = goog.defineClass(LegacyBase, {
+    constructor: function() {}
+  });
+
+  var der = new Derived();
+  der.setFoo('bar');
+  assertEquals('bar', der.foo);
 }
